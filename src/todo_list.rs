@@ -106,4 +106,8 @@ impl TodoList {
 
         Ok(self.items.remove(index))
     }
+
+    pub fn todo_len(&self) -> usize {
+        self.items.iter().filter(|item| !item.completed).count()
+    }
 }

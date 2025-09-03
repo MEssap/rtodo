@@ -87,7 +87,7 @@ fn main() -> Result<()> {
             if items.is_empty() {
                 println!("No todo items found.");
             } else {
-                println!("Todo List:");
+                println!("Todo List({}):", todo_list.todo_len());
                 for item in items {
                     let status = if item.completed { "✓" } else { " " };
                     println!("[{}] #{}: {}", status, item.id, item.description);
