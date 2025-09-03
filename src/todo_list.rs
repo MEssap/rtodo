@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TodoItem {
@@ -9,26 +10,67 @@ pub struct TodoItem {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct IdPool {
+    next_id: u32,
+    recycled_ids: Vec<u32>,
+    used_ids: HashSet<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TodoList {
     pub items: Vec<TodoItem>,
-    pub next_id: u32,
+    id_pool: IdPool,
+}
+
+impl IdPool {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            recycled_ids: Vec::new(),
+            used_ids: HashSet::new(),
+        }
+    }
+
+    /// 获取ID
+    fn acquire_id(&mut self) -> u32 {
+        if let Some(id) = self.recycled_ids.pop() {
+            self.used_ids.insert(id);
+            id
+        } else {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.used_ids.insert(id);
+            id
+        }
+    }
+
+    /// 释放ID
+    fn release_id(&mut self, id: u32) -> Result<()> {
+        if !self.used_ids.contains(&id) {
+            return Err(anyhow::anyhow!("ID {} is not in use", id));
+        }
+
+        self.used_ids.remove(&id);
+        self.recycled_ids.push(id);
+        Ok(())
+    }
 }
 
 impl TodoList {
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
-            next_id: 1,
+            id_pool: IdPool::new(),
         }
     }
 
     pub fn add_item(&mut self, description: String) -> Result<&TodoItem> {
+        let id = self.id_pool.acquire_id();
         let item = TodoItem {
-            id: self.next_id,
+            id: id,
             description,
             completed: false,
         };
-        self.next_id += 1;
         self.items.push(item);
         self.items
             .last()
@@ -60,6 +102,7 @@ impl TodoList {
             .iter()
             .position(|item| item.id == id)
             .ok_or_else(|| anyhow::anyhow!("Item with id {} not found", id))?;
+        self.id_pool.release_id(id)?;
 
         Ok(self.items.remove(index))
     }
