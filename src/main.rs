@@ -9,8 +9,8 @@ use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "todolist")]
-#[command(about = "A simple todo list manager", long_about = None)]
+#[command(name = "rtodo")]
+#[command(about = "A simple todo list manager in rust", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -50,11 +50,7 @@ fn save_todo_list(file_path: &PathBuf, todo_list: &TodoList) -> Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .open(file_path)
-        .context(format!(
-            "Failed to create or open file: {}",
-            file_path.display()
-        ))?;
+        .open(file_path)?;
 
     let writer = BufWriter::new(file);
     serde_json::to_writer_pretty(writer, todo_list)?;
@@ -83,7 +79,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Add { description } => {
-            let item = todo_list.add_item(description);
+            let item = todo_list.add_item(description)?;
             println!("Added todo item #{}: {}", item.id, item.description);
         }
         Commands::List { all } => {

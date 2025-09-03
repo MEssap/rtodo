@@ -22,7 +22,7 @@ impl TodoList {
         }
     }
 
-    pub fn add_item(&mut self, description: String) -> &TodoItem {
+    pub fn add_item(&mut self, description: String) -> Result<&TodoItem> {
         let item = TodoItem {
             id: self.next_id,
             description,
@@ -30,7 +30,9 @@ impl TodoList {
         };
         self.next_id += 1;
         self.items.push(item);
-        self.items.last().unwrap()
+        self.items
+            .last()
+            .ok_or(anyhow::anyhow!("Cannot get todolist item"))
     }
 
     pub fn list_items(&self, show_completed: bool) -> Vec<&TodoItem> {
@@ -46,7 +48,7 @@ impl TodoList {
             .items
             .iter_mut()
             .find(|item| item.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Item with id {} not found", id))?;
+            .ok_or(anyhow::anyhow!("Item with id {} not found", id))?;
 
         item.completed = true;
         Ok(item)
