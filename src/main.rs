@@ -2,14 +2,17 @@ mod todo_list;
 
 use crate::todo_list::TodoList;
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
-use std::env;
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
+use clap_complete::aot::{Bash, Elvish, Fish, PowerShell, Zsh};
+use clap_complete::{Generator, generate};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
+use std::{env, io};
 
 #[derive(Parser)]
-#[command(name = "rtodo")]
+#[command(name = "td")]
 #[command(about = "A simple todo list manager in rust", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -32,6 +35,21 @@ enum Commands {
     Complete { id: u32 },
     /// Remove a todo item
     Remove { id: u32 },
+    /// Generate shell completion scripts
+    Completion {
+        /// Shell type to generate completion for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+}
+
+fn print_completion<G: Generator>(generator: G, cmd: &mut clap::Command) {
+    generate(
+        generator,
+        cmd,
+        cmd.get_name().to_string(),
+        &mut io::stdout(),
+    );
 }
 
 fn load_todo_list(file_path: &PathBuf) -> Result<TodoList> {
@@ -101,6 +119,19 @@ fn main() -> Result<()> {
         Commands::Remove { id } => {
             let item = todo_list.remove_item(id)?;
             println!("Removed todo item #{}: {}", item.id, item.description);
+        }
+        Commands::Completion { shell } => {
+            let mut cmd = Cli::command();
+            match shell {
+                Shell::Bash => print_completion(Bash, &mut cmd),
+                Shell::Elvish => print_completion(Elvish, &mut cmd),
+                Shell::Fish => print_completion(Fish, &mut cmd),
+                Shell::PowerShell => print_completion(PowerShell, &mut cmd),
+                Shell::Zsh => print_completion(Zsh, &mut cmd),
+                _ => {
+                    todo!()
+                }
+            }
         }
     }
 
