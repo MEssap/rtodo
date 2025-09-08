@@ -225,19 +225,7 @@ fn main() -> Result<()> {
                 println!("No todo items found.");
             } else {
                 println!("Todo List({}):", todo_list.todo_len());
-                for item in items {
-                    let status = if item.completed { "✓" } else { " " };
-                    println!(
-                        "[{}] #{}: {} {}",
-                        status,
-                        item.id,
-                        item.description,
-                        match &item.deadline {
-                            Some(time) => format!("| deadline: {}", time),
-                            None => String::new(),
-                        }
-                    );
-                }
+                items.iter().for_each(|i| i.display(0));
             }
         }
         Commands::Complete { id } => {

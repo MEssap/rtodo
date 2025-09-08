@@ -134,3 +134,20 @@ impl Default for TodoItem {
         }
     }
 }
+
+impl TodoItem {
+    pub fn display(&self, deep: usize) {
+        let status = if self.completed { "✓" } else { " " };
+        println!(
+            "{}[{}] #{}: {} {}",
+            "  ".repeat(deep),
+            status,
+            self.id,
+            self.description,
+            match &self.deadline {
+                Some(time) => format!("| deadline: {}", time),
+                None => String::new(),
+            }
+        );
+    }
+}
