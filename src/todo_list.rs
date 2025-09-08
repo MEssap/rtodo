@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -7,6 +8,8 @@ pub struct TodoItem {
     pub id: u32,
     pub description: String,
     pub completed: bool,
+    #[serde(default)]
+    pub deadline: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,12 +67,21 @@ impl TodoList {
         }
     }
 
-    pub fn add_item(&mut self, description: String) -> Result<&TodoItem> {
+    pub fn add_item(
+        &mut self,
+        description: String,
+        deadline: Option<DateTime<Local>>,
+    ) -> Result<&TodoItem> {
         let id = self.id_pool.acquire_id();
+        let time = match deadline {
+            None => None,
+            Some(deadline) => Some(deadline.to_string()),
+        };
         let item = TodoItem {
             id: id,
             description,
             completed: false,
+            deadline: time,
         };
         self.items.push(item);
         self.items
@@ -109,5 +121,16 @@ impl TodoList {
 
     pub fn todo_len(&self) -> usize {
         self.items.iter().filter(|item| !item.completed).count()
+    }
+}
+
+impl Default for TodoItem {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            description: String::new(),
+            completed: false,
+            deadline: None,
+        }
     }
 }

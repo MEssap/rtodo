@@ -1,7 +1,8 @@
 mod todo_list;
 
 use crate::todo_list::TodoList;
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
+use chrono::{DateTime, Local, NaiveDateTime, ParseResult};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use clap_complete::aot::{Bash, Elvish, Fish, PowerShell, Zsh};
@@ -25,7 +26,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Add a new todo item
-    Add { description: String },
+    Add {
+        /// Description of the todo item
+        description: String,
+        /// Deadline of todo item
+        #[arg(short, long)]
+        deadline: Option<String>,
+    },
     /// List all todo items
     List {
         #[arg(short, long)]
@@ -90,14 +97,126 @@ fn expand_path(path: &String) -> Result<PathBuf> {
     }
 }
 
+fn parse_relative_time(time_str: &String) -> Option<DateTime<Local>> {
+    let now = Local::now();
+
+    match time_str.to_lowercase().as_str() {
+        "today" => Some(
+            now.date_naive()
+                .and_hms_opt(23, 59, 0)?
+                .and_local_timezone(Local)
+                .unwrap(),
+        ),
+        "tomorrow" => Some(
+            (now + chrono::Duration::days(1))
+                .date_naive()
+                .and_hms_opt(23, 59, 0)?
+                .and_local_timezone(Local)
+                .unwrap(),
+        ),
+        "nextweek" => Some(
+            (now + chrono::Duration::weeks(1))
+                .date_naive()
+                .and_hms_opt(23, 59, 0)?
+                .and_local_timezone(Local)
+                .unwrap(),
+        ),
+        _ => {
+            if time_str.starts_with('+') {
+                parse_duration_offset(&time_str[1..], now)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn parse_duration_offset(
+    duration_str: &str,
+    base_time: DateTime<Local>,
+) -> Option<DateTime<Local>> {
+    let parts: Vec<&str> = duration_str.split_whitespace().collect();
+    let mut duration = chrono::Duration::zero();
+
+    for part in parts {
+        if part.ends_with("d") || part.ends_with("days") {
+            let days = part
+                .trim_end_matches("d")
+                .trim_end_matches("day")
+                .trim_end_matches("days")
+                .parse()
+                .ok()?;
+            println!("run here {}", days);
+            duration = duration + chrono::Duration::days(days);
+        } else if part.ends_with("h") || part.ends_with("hours") {
+            let hours = part
+                .trim_end_matches("h")
+                .trim_end_matches("hour")
+                .trim_end_matches("hours")
+                .parse()
+                .ok()?;
+            duration = duration + chrono::Duration::hours(hours);
+        } else if part.ends_with("m") || part.ends_with("min") || part.ends_with("minutes") {
+            let minutes = part
+                .trim_end_matches("m")
+                .trim_end_matches("min")
+                .trim_end_matches("minute")
+                .trim_end_matches("minutes")
+                .parse()
+                .ok()?;
+            duration = duration + chrono::Duration::minutes(minutes);
+        }
+    }
+
+    Some(base_time + duration)
+}
+
+fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
+    if let Some(deadline_str) = deadline {
+        // 尝试解析完整日期时间格式: YYYY-MM-DD HH:MM
+        if let ParseResult::Ok(datetime) =
+            NaiveDateTime::parse_from_str(&deadline_str, "%Y-%m-%d %H:%M")
+        {
+            // return Ok(DateTime::from_naive_utc_and_offset(datetime, Local));
+            return Ok(DateTime::from_naive_utc_and_offset(
+                datetime,
+                Local::now().offset().clone(),
+            ));
+        }
+
+        // 尝试解析日期格式: YYYY-MM-DD (默认为当天23:59)
+        if let ParseResult::Ok(datetime) = NaiveDateTime::parse_from_str(&deadline_str, "%Y-%m-%d")
+        {
+            // let datetime = date.and_hms_opt(23, 59, 0).context("Invalid time")?;
+            return Ok(DateTime::from_naive_utc_and_offset(
+                datetime,
+                Local::now().offset().clone(),
+            ));
+        }
+
+        // 尝试解析相对时间
+        if let Some(relative_time) = parse_relative_time(&deadline_str) {
+            return Ok(relative_time);
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Invalid deadline format. Use: YYYY-MM-DD HH:MM, YYYY-MM-DD, or relative time like 'tomorrow' or '+2days'"
+    ))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let file_path = expand_path(&cli.file)?;
     let mut todo_list = load_todo_list(&file_path)?;
 
     match cli.command {
-        Commands::Add { description } => {
-            let item = todo_list.add_item(description)?;
+        Commands::Add {
+            description,
+            deadline,
+        } => {
+            let deadline = parse_deadline(deadline).ok();
+            let item = todo_list.add_item(description, deadline)?;
             println!("Added todo item #{}: {}", item.id, item.description);
         }
         Commands::List { all } => {
@@ -108,7 +227,16 @@ fn main() -> Result<()> {
                 println!("Todo List({}):", todo_list.todo_len());
                 for item in items {
                     let status = if item.completed { "✓" } else { " " };
-                    println!("[{}] #{}: {}", status, item.id, item.description);
+                    println!(
+                        "[{}] #{}: {} {}",
+                        status,
+                        item.id,
+                        item.description,
+                        match &item.deadline {
+                            Some(time) => format!("| deadline: {}", time),
+                            None => String::new(),
+                        }
+                    );
                 }
             }
         }
