@@ -1,16 +1,14 @@
 mod todo_list;
+mod utils;
 
-use crate::todo_list::TodoList;
-use anyhow::{Context, Ok, Result};
-use chrono::{DateTime, Local, NaiveDateTime, ParseResult};
+use crate::utils::{expand_path, load_todo_list, parse_deadline, save_todo_list};
+use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use clap_complete::aot::{Bash, Elvish, Fish, PowerShell, Zsh};
 use clap_complete::{Generator, generate};
-use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter};
-use std::path::PathBuf;
-use std::{env, io};
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Parser)]
 #[command(name = "td")]
@@ -32,6 +30,18 @@ enum Commands {
         /// Deadline of todo item
         #[arg(short, long)]
         deadline: Option<String>,
+        /// Sub todo list of parent id
+        #[arg(short, long)]
+        parent_id: Option<usize>,
+    },
+    /// Edit todo item with id
+    Edit {
+        id: usize,
+        /// Description of the todo item
+        description: String,
+        /// Deadline of todo item
+        #[arg(short, long)]
+        deadline: Option<String>,
     },
     /// List all todo items
     List {
@@ -39,9 +49,14 @@ enum Commands {
         all: bool,
     },
     /// Complete a todo item
-    Complete { id: u32 },
+    Complete {
+        id: usize,
+        /// Sub todolist of parent id
+        #[arg(short, long)]
+        parent_id: Option<usize>,
+    },
     /// Remove a todo item
-    Remove { id: u32 },
+    Remove { id: usize },
     /// Generate shell completion scripts
     Completion {
         /// Shell type to generate completion for
@@ -59,151 +74,7 @@ fn print_completion<G: Generator>(generator: G, cmd: &mut clap::Command) {
     );
 }
 
-fn load_todo_list(file_path: &PathBuf) -> Result<TodoList> {
-    if file_path.exists() {
-        let file = File::open(file_path)?;
-        let reader = BufReader::new(file);
-        let todo_list = serde_json::from_reader(reader)?;
-        Ok(todo_list)
-    } else {
-        Ok(TodoList::new())
-    }
-}
-
-fn save_todo_list(file_path: &PathBuf, todo_list: &TodoList) -> Result<()> {
-    let file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(file_path)?;
-
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, todo_list)?;
-    Ok(())
-}
-
-fn expand_path(path: &String) -> Result<PathBuf> {
-    if path.starts_with('~') {
-        let home_dir = env::var("HOME").context("HOME environment variable not set")?;
-
-        if path == "~" {
-            Ok(PathBuf::from(home_dir))
-        } else {
-            let stripped_path = path.trim_start_matches('~').trim_start_matches('/');
-            Ok(PathBuf::from(home_dir).join(stripped_path))
-        }
-    } else {
-        Ok(PathBuf::from(path))
-    }
-}
-
-fn parse_relative_time(time_str: &String) -> Option<DateTime<Local>> {
-    let now = Local::now();
-
-    match time_str.to_lowercase().as_str() {
-        "today" => Some(
-            now.date_naive()
-                .and_hms_opt(23, 59, 0)?
-                .and_local_timezone(Local)
-                .unwrap(),
-        ),
-        "tomorrow" => Some(
-            (now + chrono::Duration::days(1))
-                .date_naive()
-                .and_hms_opt(23, 59, 0)?
-                .and_local_timezone(Local)
-                .unwrap(),
-        ),
-        "nextweek" => Some(
-            (now + chrono::Duration::weeks(1))
-                .date_naive()
-                .and_hms_opt(23, 59, 0)?
-                .and_local_timezone(Local)
-                .unwrap(),
-        ),
-        _ => {
-            if time_str.starts_with('+') {
-                parse_duration_offset(&time_str[1..], now)
-            } else {
-                None
-            }
-        }
-    }
-}
-
-fn parse_duration_offset(
-    duration_str: &str,
-    base_time: DateTime<Local>,
-) -> Option<DateTime<Local>> {
-    let parts: Vec<&str> = duration_str.split_whitespace().collect();
-    let mut duration = chrono::Duration::zero();
-
-    for part in parts {
-        if part.ends_with("d") || part.ends_with("days") {
-            let days = part
-                .trim_end_matches("d")
-                .trim_end_matches("day")
-                .trim_end_matches("days")
-                .parse()
-                .ok()?;
-            println!("run here {}", days);
-            duration = duration + chrono::Duration::days(days);
-        } else if part.ends_with("h") || part.ends_with("hours") {
-            let hours = part
-                .trim_end_matches("h")
-                .trim_end_matches("hour")
-                .trim_end_matches("hours")
-                .parse()
-                .ok()?;
-            duration = duration + chrono::Duration::hours(hours);
-        } else if part.ends_with("m") || part.ends_with("min") || part.ends_with("minutes") {
-            let minutes = part
-                .trim_end_matches("m")
-                .trim_end_matches("min")
-                .trim_end_matches("minute")
-                .trim_end_matches("minutes")
-                .parse()
-                .ok()?;
-            duration = duration + chrono::Duration::minutes(minutes);
-        }
-    }
-
-    Some(base_time + duration)
-}
-
-fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
-    if let Some(deadline_str) = deadline {
-        // 尝试解析完整日期时间格式: YYYY-MM-DD HH:MM
-        if let ParseResult::Ok(datetime) =
-            NaiveDateTime::parse_from_str(&deadline_str, "%Y-%m-%d %H:%M")
-        {
-            // return Ok(DateTime::from_naive_utc_and_offset(datetime, Local));
-            return Ok(DateTime::from_naive_utc_and_offset(
-                datetime,
-                Local::now().offset().clone(),
-            ));
-        }
-
-        // 尝试解析日期格式: YYYY-MM-DD (默认为当天23:59)
-        if let ParseResult::Ok(datetime) = NaiveDateTime::parse_from_str(&deadline_str, "%Y-%m-%d")
-        {
-            // let datetime = date.and_hms_opt(23, 59, 0).context("Invalid time")?;
-            return Ok(DateTime::from_naive_utc_and_offset(
-                datetime,
-                Local::now().offset().clone(),
-            ));
-        }
-
-        // 尝试解析相对时间
-        if let Some(relative_time) = parse_relative_time(&deadline_str) {
-            return Ok(relative_time);
-        }
-    }
-
-    Err(anyhow::anyhow!(
-        "Invalid deadline format. Use: YYYY-MM-DD HH:MM, YYYY-MM-DD, or relative time like 'tomorrow' or '+2days'"
-    ))
-}
+static SHOW_COMPLETE: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -214,13 +85,34 @@ fn main() -> Result<()> {
         Commands::Add {
             description,
             deadline,
+            parent_id,
         } => {
             let deadline = parse_deadline(deadline).ok();
-            let item = todo_list.add_item(description, deadline)?;
+            let item = todo_list.add_item(description, deadline, parent_id)?;
             println!("Added todo item #{}: {}", item.id, item.description);
         }
+        Commands::Edit {
+            id,
+            description,
+            deadline,
+        } => {
+            let deadline = parse_deadline(deadline).ok();
+            if let Some(item) = todo_list.items.get_mut(id) {
+                item.description = description.clone();
+                if let Some(time) = deadline {
+                    item.deadline = Some(time.to_string());
+                }
+                println!(
+                    "Edit todo item #{}: {} {:?}",
+                    id, item.description, deadline
+                );
+            } else {
+                println!("No todo items found.");
+            }
+        }
         Commands::List { all } => {
-            let items = todo_list.list_items(all);
+            SHOW_COMPLETE.store(all, Ordering::SeqCst);
+            let items = todo_list.list_items();
             if items.is_empty() {
                 println!("No todo items found.");
             } else {
@@ -228,8 +120,18 @@ fn main() -> Result<()> {
                 items.iter().for_each(|i| i.display(0));
             }
         }
-        Commands::Complete { id } => {
-            let item = todo_list.complete_item(id)?;
+        Commands::Complete { id, parent_id } => {
+            let item = if let Some(parent_index) = parent_id {
+                todo_list
+                    .items
+                    .get_mut(parent_index)
+                    .and_then(|parent| parent.sub_list.as_mut())
+                    .ok_or(anyhow::anyhow!("Parent or sublist not found"))?
+                    .complete_item(id)?
+            } else {
+                todo_list.complete_item(id)?
+            };
+
             println!("Completed todo item #{}: {}", item.id, item.description);
         }
         Commands::Remove { id } => {

@@ -1,22 +1,26 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::atomic::Ordering};
+
+use crate::SHOW_COMPLETE;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TodoItem {
-    pub id: u32,
+    pub id: usize,
     pub description: String,
     pub completed: bool,
     #[serde(default)]
     pub deadline: Option<String>,
+    #[serde(default)]
+    pub sub_list: Option<TodoList>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct IdPool {
-    next_id: u32,
-    recycled_ids: Vec<u32>,
-    used_ids: HashSet<u32>,
+    next_id: usize,
+    recycled_ids: Vec<usize>,
+    used_ids: HashSet<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,14 +32,14 @@ pub struct TodoList {
 impl IdPool {
     fn new() -> Self {
         Self {
-            next_id: 1,
+            next_id: 0,
             recycled_ids: Vec::new(),
             used_ids: HashSet::new(),
         }
     }
 
     /// 获取ID
-    fn acquire_id(&mut self) -> u32 {
+    fn acquire_id(&mut self) -> usize {
         if let Some(id) = self.recycled_ids.pop() {
             self.used_ids.insert(id);
             id
@@ -48,7 +52,7 @@ impl IdPool {
     }
 
     /// 释放ID
-    fn release_id(&mut self, id: u32) -> Result<()> {
+    fn release_id(&mut self, id: usize) -> Result<()> {
         if !self.used_ids.contains(&id) {
             return Err(anyhow::anyhow!("ID {} is not in use", id));
         }
@@ -71,8 +75,18 @@ impl TodoList {
         &mut self,
         description: String,
         deadline: Option<DateTime<Local>>,
+        parent_id: Option<usize>,
     ) -> Result<&TodoItem> {
-        let id = self.id_pool.acquire_id();
+        let list = if let Some(p) = parent_id {
+            let parent = self
+                .items
+                .get_mut(p)
+                .ok_or_else(|| anyhow::anyhow!("Parent index {} not found", p))?;
+            parent.sub_list.get_or_insert_with(|| TodoList::new())
+        } else {
+            self
+        };
+        let id = list.id_pool.acquire_id();
         let time = match deadline {
             None => None,
             Some(deadline) => Some(deadline.to_string()),
@@ -82,22 +96,23 @@ impl TodoList {
             description,
             completed: false,
             deadline: time,
+            sub_list: None,
         };
-        self.items.push(item);
-        self.items
+        list.items.push(item);
+        list.items
             .last()
             .ok_or(anyhow::anyhow!("Cannot get todolist item"))
     }
 
-    pub fn list_items(&self, show_completed: bool) -> Vec<&TodoItem> {
-        if show_completed {
+    pub fn list_items(&self) -> Vec<&TodoItem> {
+        if SHOW_COMPLETE.load(Ordering::SeqCst) {
             self.items.iter().collect()
         } else {
             self.items.iter().filter(|item| !item.completed).collect()
         }
     }
 
-    pub fn complete_item(&mut self, id: u32) -> Result<&TodoItem> {
+    pub fn complete_item(&mut self, id: usize) -> Result<&TodoItem> {
         let item = self
             .items
             .iter_mut()
@@ -108,7 +123,7 @@ impl TodoList {
         Ok(item)
     }
 
-    pub fn remove_item(&mut self, id: u32) -> Result<TodoItem> {
+    pub fn remove_item(&mut self, id: usize) -> Result<TodoItem> {
         let index = self
             .items
             .iter()
@@ -131,6 +146,7 @@ impl Default for TodoItem {
             description: String::new(),
             completed: false,
             deadline: None,
+            sub_list: None,
         }
     }
 }
@@ -139,15 +155,48 @@ impl TodoItem {
     pub fn display(&self, deep: usize) {
         let status = if self.completed { "✓" } else { " " };
         println!(
-            "{}[{}] #{}: {} {}",
+            "{}[{}] #{}: {}{} {}",
             "  ".repeat(deep),
             status,
             self.id,
             self.description,
+            match &self.sub_list {
+                Some(list) => format!("({})", list.todo_len()),
+                None => String::new(),
+            },
             match &self.deadline {
                 Some(time) => format!("| deadline: {}", time),
                 None => String::new(),
             }
         );
+        if let Some(sub_list) = &self.sub_list {
+            let items = sub_list.list_items();
+            for item in items {
+                item.display(deep + 1);
+            }
+        };
+    }
+}
+
+#[cfg(test)]
+mod todo_list_tests {
+    use super::*;
+    use crate::utils::{expand_path, parse_deadline, save_todo_list};
+
+    #[test]
+    fn create() -> Result<()> {
+        let mut list = TodoList::new();
+        list.add_item("test1".to_string(), None, None)?;
+        list.add_item("test2".to_string(), None, None)?;
+        let time = parse_deadline(Some("today".to_string()))?;
+        list.add_item("test3".to_string(), Some(time), None)?;
+        list.add_item("test4".to_string(), None, None)?;
+        // list.add_item("test5".to_string(), None, Some(0))?;
+        let path_str = "~/.todo".to_string();
+        let path = expand_path(&path_str)?;
+
+        save_todo_list(&path, &list)?;
+
+        Ok(())
     }
 }
