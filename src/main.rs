@@ -103,8 +103,13 @@ fn main() -> Result<()> {
                     item.deadline = Some(time.to_string());
                 }
                 println!(
-                    "Edit todo item #{}: {} {:?}",
-                    id, item.description, deadline
+                    "Edit todo item #{}: {} {}",
+                    id,
+                    item.description,
+                    match deadline {
+                        Some(time) => format!("| deadline: {}", time),
+                        None => String::new(),
+                    }
                 );
             } else {
                 println!("No todo items found.");
