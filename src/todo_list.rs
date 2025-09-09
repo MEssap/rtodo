@@ -80,9 +80,13 @@ impl TodoList {
         let list = if let Some(p) = parent_id {
             let parent = self
                 .items
-                .get_mut(p)
+                .iter()
+                .position(|item| item.id == p)
                 .ok_or_else(|| anyhow::anyhow!("Parent index {} not found", p))?;
-            parent.sub_list.get_or_insert_with(|| TodoList::new())
+
+            self.items[parent]
+                .sub_list
+                .get_or_insert_with(|| TodoList::new())
         } else {
             self
         };
