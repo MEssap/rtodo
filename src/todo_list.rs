@@ -156,6 +156,7 @@ impl Default for TodoItem {
 }
 
 impl TodoItem {
+    // TODO: 实现Display与Format
     pub fn display(&self, deep: usize) {
         let status = if self.completed { "✓" } else { " " };
         println!(

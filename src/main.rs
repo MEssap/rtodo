@@ -56,7 +56,12 @@ enum Commands {
         parent_id: Option<usize>,
     },
     /// Remove a todo item
-    Remove { id: usize },
+    Remove {
+        id: usize,
+        /// Sub todo list of parent id
+        #[arg(short, long)]
+        parent_id: Option<usize>,
+    },
     /// Generate shell completion scripts
     Completion {
         /// Shell type to generate completion for
@@ -139,8 +144,17 @@ fn main() -> Result<()> {
 
             println!("Completed todo item #{}: {}", item.id, item.description);
         }
-        Commands::Remove { id } => {
-            let item = todo_list.remove_item(id)?;
+        Commands::Remove { id, parent_id } => {
+            let item = if let Some(parent_index) = parent_id {
+                todo_list
+                    .items
+                    .get_mut(parent_index)
+                    .and_then(|parent| parent.sub_list.as_mut())
+                    .ok_or(anyhow::anyhow!("Parent or sublist not found"))?
+                    .remove_item(id)?
+            } else {
+                todo_list.remove_item(id)?
+            };
             println!("Removed todo item #{}: {}", item.id, item.description);
         }
         Commands::Completion { shell } => {
