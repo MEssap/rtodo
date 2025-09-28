@@ -1,7 +1,7 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, sync::atomic::Ordering};
+use std::{collections::HashSet, env::current_dir, sync::atomic::Ordering};
 
 use crate::SHOW_COMPLETE;
 
@@ -71,22 +71,51 @@ impl TodoList {
         }
     }
 
+    pub fn parse_path(&mut self, path: &String) -> Result<&mut TodoItem> {
+        let indices: Vec<usize> = path
+            .split(':')
+            .map(|s| s.parse::<usize>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| anyhow::anyhow!("Invalid path format: {}", path))?;
+
+        if indices.is_empty() {
+            return Err(anyhow::anyhow!("Not found path."));
+        }
+
+        let mut current_list = self;
+        for (depth, &index) in indices.iter().enumerate() {
+            if index >= current_list.items.len() {
+                return Err(anyhow::anyhow!(
+                    "Index {} out of bounds at depth {} (path: {})",
+                    index,
+                    depth,
+                    path
+                ));
+            }
+
+            if depth == indices.len() - 1 {
+                return Ok(&mut current_list.items[index]);
+            }
+
+            let item = &mut current_list.items[index];
+            current_list = item
+                .sub_list
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("No sublist at index {} (path: {})", index, path))?;
+        }
+
+        unreachable!()
+    }
+
     pub fn add_item(
         &mut self,
         description: String,
         deadline: Option<DateTime<Local>>,
-        parent_id: Option<usize>,
+        parent_path: Option<&String>,
     ) -> Result<&TodoItem> {
-        let list = if let Some(p) = parent_id {
-            let parent = self
-                .items
-                .iter()
-                .position(|item| item.id == p)
-                .ok_or_else(|| anyhow::anyhow!("Parent index {} not found", p))?;
-
-            self.items[parent]
-                .sub_list
-                .get_or_insert_with(|| TodoList::new())
+        let list = if let Some(p) = parent_path {
+            let parent = self.parse_path(p)?;
+            parent.sub_list.get_or_insert_with(|| TodoList::new())
         } else {
             self
         };
@@ -158,11 +187,10 @@ impl Default for TodoItem {
 impl TodoItem {
     // TODO: 实现Display与Format
     pub fn display(&self, deep: usize) {
-        let status = if self.completed { "✓" } else { " " };
+        let status = if self.completed { " | ✓" } else { "" };
         println!(
-            "{}[{}] #{}: {}{} {}",
+            "{}#{}: {}{}{}{}",
             "  ".repeat(deep),
-            status,
             self.id,
             self.description,
             match &self.sub_list {
@@ -170,9 +198,10 @@ impl TodoItem {
                 None => String::new(),
             },
             match &self.deadline {
-                Some(time) => format!("| deadline: {}", time),
+                Some(time) => format!(" | deadline: {}", time),
                 None => String::new(),
-            }
+            },
+            status,
         );
         if let Some(sub_list) = &self.sub_list {
             let items = sub_list.list_items();

@@ -32,7 +32,7 @@ enum Commands {
         deadline: Option<String>,
         /// Sub todo list of parent id
         #[arg(short, long)]
-        parent_id: Option<usize>,
+        parent_path: Option<String>,
     },
     /// Edit todo item with id
     Edit {
@@ -42,6 +42,9 @@ enum Commands {
         /// Deadline of todo item
         #[arg(short, long)]
         deadline: Option<String>,
+        /// Sub todolist of parent id
+        #[arg(short, long)]
+        parent_path: Option<String>,
     },
     /// List all todo items
     List {
@@ -53,14 +56,14 @@ enum Commands {
         id: usize,
         /// Sub todolist of parent id
         #[arg(short, long)]
-        parent_id: Option<usize>,
+        parent_path: Option<String>,
     },
     /// Remove a todo item
     Remove {
         id: usize,
         /// Sub todo list of parent id
         #[arg(short, long)]
-        parent_id: Option<usize>,
+        parent_path: Option<String>,
     },
     /// Generate shell completion scripts
     Completion {
@@ -90,35 +93,53 @@ fn main() -> Result<()> {
         Commands::Add {
             description,
             deadline,
-            parent_id,
+            parent_path,
         } => {
             let deadline = parse_deadline(deadline).ok();
-            let item = todo_list.add_item(description, deadline, parent_id)?;
-            println!("Added todo item #{}: {}", item.id, item.description);
+            let item = todo_list.add_item(description, deadline, parent_path.as_ref())?;
+            println!(
+                "Added todo item #{:?}:{}: {}",
+                parent_path, item.id, item.description
+            );
         }
         Commands::Edit {
             id,
             description,
             deadline,
+            parent_path,
         } => {
             let deadline = parse_deadline(deadline).ok();
-            if let Some(item) = todo_list.items.get_mut(id) {
-                item.description = description.clone();
-                if let Some(time) = deadline {
-                    item.deadline = Some(time.to_string());
-                }
-                println!(
-                    "Edit todo item #{}: {} {}",
-                    id,
-                    item.description,
-                    match deadline {
-                        Some(time) => format!("| deadline: {}", time),
-                        None => String::new(),
-                    }
-                );
+            let item = if let Some(p) = &parent_path {
+                todo_list
+                    .parse_path(p)?
+                    .sub_list
+                    .as_mut()
+                    .ok_or(anyhow::anyhow!("Parent not found"))?
+                    .items
+                    .get_mut(id)
             } else {
-                println!("No todo items found.");
+                todo_list.items.get_mut(id)
             }
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Cannot get edit item.",
+            ))?;
+
+            item.description = description.clone();
+            if let Some(time) = deadline {
+                item.deadline = Some(time.to_string());
+            }
+
+            println!(
+                "Edit todo item #{:?}:{}: {} {}",
+                parent_path,
+                id,
+                item.description,
+                match deadline {
+                    Some(time) => format!("| deadline: {}", time),
+                    None => String::new(),
+                }
+            );
         }
         Commands::List { all } => {
             SHOW_COMPLETE.store(all, Ordering::SeqCst);
@@ -130,32 +151,39 @@ fn main() -> Result<()> {
                 items.iter().for_each(|i| i.display(0));
             }
         }
-        Commands::Complete { id, parent_id } => {
-            let item = if let Some(parent_index) = parent_id {
+        Commands::Complete { id, parent_path } => {
+            let item = if let Some(p) = &parent_path {
                 todo_list
-                    .items
-                    .get_mut(parent_index)
-                    .and_then(|parent| parent.sub_list.as_mut())
+                    .parse_path(p)?
+                    .sub_list
+                    .as_mut()
                     .ok_or(anyhow::anyhow!("Parent or sublist not found"))?
                     .complete_item(id)?
             } else {
                 todo_list.complete_item(id)?
             };
 
-            println!("Completed todo item #{}: {}", item.id, item.description);
+            println!(
+                "Completed todo item #{:?}:{}: {}",
+                parent_path, item.id, item.description
+            );
         }
-        Commands::Remove { id, parent_id } => {
-            let item = if let Some(parent_index) = parent_id {
+        Commands::Remove { id, parent_path } => {
+            let item = if let Some(p) = &parent_path {
                 todo_list
-                    .items
-                    .get_mut(parent_index)
-                    .and_then(|parent| parent.sub_list.as_mut())
+                    .parse_path(p)?
+                    .sub_list
+                    .as_mut()
                     .ok_or(anyhow::anyhow!("Parent or sublist not found"))?
                     .remove_item(id)?
             } else {
                 todo_list.remove_item(id)?
             };
-            println!("Removed todo item #{}: {}", item.id, item.description);
+
+            println!(
+                "Removed todo item #{:?}:{}: {}",
+                parent_path, item.id, item.description
+            );
         }
         Commands::Completion { shell } => {
             let mut cmd = Cli::command();
