@@ -46,7 +46,7 @@ pub fn expand_path(path: &String) -> Result<PathBuf> {
     }
 }
 
-fn parse_relative_time(time_str: &String) -> Option<DateTime<Local>> {
+fn parse_relative_time(time_str: &str) -> Option<DateTime<Local>> {
     let now = Local::now();
 
     match time_str.to_lowercase().as_str() {
@@ -71,8 +71,8 @@ fn parse_relative_time(time_str: &String) -> Option<DateTime<Local>> {
                 .unwrap(),
         ),
         _ => {
-            if time_str.starts_with('+') {
-                parse_duration_offset(&time_str[1..], now)
+            if let Some(duration_str) = time_str.strip_prefix('+') {
+                parse_duration_offset(duration_str, now)
             } else {
                 None
             }
@@ -96,7 +96,7 @@ fn parse_duration_offset(
                 .parse()
                 .ok()?;
             println!("run here {}", days);
-            duration = duration + chrono::Duration::days(days);
+            duration += chrono::Duration::days(days);
         } else if part.ends_with("h") || part.ends_with("hours") {
             let hours = part
                 .trim_end_matches("h")
@@ -104,7 +104,7 @@ fn parse_duration_offset(
                 .trim_end_matches("hours")
                 .parse()
                 .ok()?;
-            duration = duration + chrono::Duration::hours(hours);
+            duration += chrono::Duration::hours(hours);
         } else if part.ends_with("m") || part.ends_with("min") || part.ends_with("minutes") {
             let minutes = part
                 .trim_end_matches("m")
@@ -113,7 +113,7 @@ fn parse_duration_offset(
                 .trim_end_matches("minutes")
                 .parse()
                 .ok()?;
-            duration = duration + chrono::Duration::minutes(minutes);
+            duration += chrono::Duration::minutes(minutes);
         }
     }
 
@@ -129,7 +129,7 @@ pub fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
             // return Ok(DateTime::from_naive_utc_and_offset(datetime, Local));
             return Ok(DateTime::from_naive_utc_and_offset(
                 datetime,
-                Local::now().offset().clone(),
+                *Local::now().offset(),
             ));
         }
 
@@ -139,7 +139,7 @@ pub fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
             // let datetime = date.and_hms_opt(23, 59, 0).context("Invalid time")?;
             return Ok(DateTime::from_naive_utc_and_offset(
                 datetime,
-                Local::now().offset().clone(),
+                *Local::now().offset(),
             ));
         }
 

@@ -2,7 +2,7 @@ mod todo_list;
 mod utils;
 
 use crate::utils::{expand_path, load_todo_list, parse_deadline, save_todo_list};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use clap_complete::aot::{Bash, Elvish, Fish, PowerShell, Zsh};
@@ -36,15 +36,13 @@ enum Commands {
     },
     /// Edit todo item with id
     Edit {
-        id: usize,
+        /// Sub todolist of parent id
+        path: String,
         /// Description of the todo item
         description: String,
         /// Deadline of todo item
         #[arg(short, long)]
         deadline: Option<String>,
-        /// Sub todolist of parent id
-        #[arg(short, long)]
-        parent_path: Option<String>,
     },
     /// List all todo items
     List {
@@ -53,17 +51,13 @@ enum Commands {
     },
     /// Complete a todo item
     Complete {
-        id: usize,
         /// Sub todolist of parent id
-        #[arg(short, long)]
-        parent_path: Option<String>,
+        path: String,
     },
     /// Remove a todo item
     Remove {
-        id: usize,
         /// Sub todo list of parent id
-        #[arg(short, long)]
-        parent_path: Option<String>,
+        path: String,
     },
     /// Generate shell completion scripts
     Completion {
@@ -98,42 +92,20 @@ fn main() -> Result<()> {
             let deadline = parse_deadline(deadline).ok();
             let item = todo_list.add_item(description, deadline, parent_path.as_ref())?;
             println!(
-                "Added todo item #{:?}:{}: {}",
-                parent_path, item.id, item.description
+                "Added todo item #{}{}: {}",
+                parent_path.map(|path|format!("{}:",path)).context("format path error")?, item.id, item.description
             );
         }
         Commands::Edit {
-            id,
+            path,
             description,
             deadline,
-            parent_path,
         } => {
             let deadline = parse_deadline(deadline).ok();
-            let item = if let Some(p) = &parent_path {
-                todo_list
-                    .parse_path(p)?
-                    .sub_list
-                    .as_mut()
-                    .ok_or(anyhow::anyhow!("Parent not found"))?
-                    .items
-                    .get_mut(id)
-            } else {
-                todo_list.items.get_mut(id)
-            }
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Cannot get edit item.",
-            ))?;
-
-            item.description = description.clone();
-            if let Some(time) = deadline {
-                item.deadline = Some(time.to_string());
-            }
-
+            let item = todo_list.edit_item(&path, description, deadline)?;
             println!(
-                "Edit todo item #{:?}:{}: {} {}",
-                parent_path,
-                id,
+                "Edit todo item #{}: {} {}",
+                path,
                 item.description,
                 match deadline {
                     Some(time) => format!("| deadline: {}", time),
@@ -151,38 +123,15 @@ fn main() -> Result<()> {
                 items.iter().for_each(|i| i.display(0));
             }
         }
-        Commands::Complete { id, parent_path } => {
-            let item = if let Some(p) = &parent_path {
-                todo_list
-                    .parse_path(p)?
-                    .sub_list
-                    .as_mut()
-                    .ok_or(anyhow::anyhow!("Parent or sublist not found"))?
-                    .complete_item(id)?
-            } else {
-                todo_list.complete_item(id)?
-            };
-
-            println!(
-                "Completed todo item #{:?}:{}: {}",
-                parent_path, item.id, item.description
-            );
+        Commands::Complete { path } => {
+            let item = todo_list.complete_item(&path)?;
+            println!("Completed todo item #{}: {}", path, item.description);
         }
-        Commands::Remove { id, parent_path } => {
-            let item = if let Some(p) = &parent_path {
-                todo_list
-                    .parse_path(p)?
-                    .sub_list
-                    .as_mut()
-                    .ok_or(anyhow::anyhow!("Parent or sublist not found"))?
-                    .remove_item(id)?
-            } else {
-                todo_list.remove_item(id)?
-            };
-
+        Commands::Remove { path } => {
+            let item=todo_list.remove_item(&path)?;
             println!(
-                "Removed todo item #{:?}:{}: {}",
-                parent_path, item.id, item.description
+                "Removed todo item #{}: {}",
+                path, item.description
             );
         }
         Commands::Completion { shell } => {

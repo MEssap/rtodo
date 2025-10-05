@@ -1,7 +1,7 @@
-use anyhow::{Error, Result};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, env::current_dir, sync::atomic::Ordering};
+use std::{collections::HashSet, sync::atomic::Ordering};
 
 use crate::SHOW_COMPLETE;
 
@@ -71,7 +71,7 @@ impl TodoList {
         }
     }
 
-    pub fn parse_path(&mut self, path: &String) -> Result<&mut TodoItem> {
+    fn parse_path(&mut self, path: &String) -> Result<&mut TodoItem> {
         let indices: Vec<usize> = path
             .split(':')
             .map(|s| s.parse::<usize>())
@@ -107,25 +107,24 @@ impl TodoList {
         unreachable!()
     }
 
+    /// create new TodoItem and push it in list
     pub fn add_item(
         &mut self,
         description: String,
         deadline: Option<DateTime<Local>>,
         parent_path: Option<&String>,
     ) -> Result<&TodoItem> {
+        // get sublist or create a new one
         let list = if let Some(p) = parent_path {
             let parent = self.parse_path(p)?;
-            parent.sub_list.get_or_insert_with(|| TodoList::new())
+            parent.sub_list.get_or_insert(TodoList::new())
         } else {
             self
         };
         let id = list.id_pool.acquire_id();
-        let time = match deadline {
-            None => None,
-            Some(deadline) => Some(deadline.to_string()),
-        };
+        let time = deadline.map(|deadline| deadline.to_string());
         let item = TodoItem {
-            id: id,
+            id,
             description,
             completed: false,
             deadline: time,
@@ -137,6 +136,18 @@ impl TodoList {
             .ok_or(anyhow::anyhow!("Cannot get todolist item"))
     }
 
+    pub fn edit_item(
+        &mut self,
+        path: &String,
+        descreption: String,
+        deadline: Option<DateTime<Local>>,
+    ) -> Result<&TodoItem> {
+        let item = self.parse_path(path)?;
+        item.description = descreption;
+        item.deadline = deadline.map(|deadline| deadline.to_string());
+        Ok(item)
+    }
+
     pub fn list_items(&self) -> Vec<&TodoItem> {
         if SHOW_COMPLETE.load(Ordering::SeqCst) {
             self.items.iter().collect()
@@ -145,26 +156,34 @@ impl TodoList {
         }
     }
 
-    pub fn complete_item(&mut self, id: usize) -> Result<&TodoItem> {
-        let item = self
-            .items
-            .iter_mut()
-            .find(|item| item.id == id)
-            .ok_or(anyhow::anyhow!("Item with id {} not found", id))?;
-
-        item.completed = true;
+    pub fn complete_item(&mut self, path: &String) -> Result<&TodoItem> {
+        let item = self.parse_path(path)?;
+        item.complete();
         Ok(item)
     }
 
-    pub fn remove_item(&mut self, id: usize) -> Result<TodoItem> {
-        let index = self
+    pub fn remove_item(&mut self, path: &str) -> Result<TodoItem> {
+        /// split parent and child path
+        fn split_path(path: &str) -> Result<(Option<String>, usize)> {
+            let (parent_str, child_str) = path.rsplit_once(":").context("Invalid path format")?;
+            let child = child_str.parse::<usize>().context("Invalid parse format")?;
+            Ok((Some(parent_str.into()), child))
+        }
+
+        let (parent_path, id) = split_path(path)?;
+        let parent = if let Some(p) = parent_path {
+            self.parse_path(&p)?.sub_list.get_or_insert(TodoList::new())
+        } else {
+            self
+        };
+        let index = parent
             .items
             .iter()
             .position(|item| item.id == id)
             .ok_or_else(|| anyhow::anyhow!("Item with id {} not found", id))?;
-        self.id_pool.release_id(id)?;
 
-        Ok(self.items.remove(index))
+        parent.id_pool.release_id(id)?;
+        Ok(parent.items.remove(index))
     }
 
     pub fn todo_len(&self) -> usize {
@@ -172,19 +191,10 @@ impl TodoList {
     }
 }
 
-impl Default for TodoItem {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            description: String::new(),
-            completed: false,
-            deadline: None,
-            sub_list: None,
-        }
-    }
-}
-
 impl TodoItem {
+    pub fn complete(&mut self) {
+        self.completed = true;
+    }
     // TODO: 实现Display与Format
     pub fn display(&self, deep: usize) {
         let status = if self.completed { " | ✓" } else { "" };
