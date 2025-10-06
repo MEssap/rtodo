@@ -93,7 +93,9 @@ fn main() -> Result<()> {
             let item = todo_list.add_item(description, deadline, parent_path.as_ref())?;
             println!(
                 "Added todo item #{}{}: {}",
-                parent_path.map(|path|format!("{}:",path)).context("format path error")?, item.id, item.description
+                parent_path.map_or(String::new(), |path| format!("{}:", path)),
+                item.id,
+                item.description
             );
         }
         Commands::Edit {
@@ -128,11 +130,8 @@ fn main() -> Result<()> {
             println!("Completed todo item #{}: {}", path, item.description);
         }
         Commands::Remove { path } => {
-            let item=todo_list.remove_item(&path)?;
-            println!(
-                "Removed todo item #{}: {}",
-                path, item.description
-            );
+            let item = todo_list.remove_item(&path)?;
+            println!("Removed todo item #{}: {}", path, item.description);
         }
         Commands::Completion { shell } => {
             let mut cmd = Cli::command();
