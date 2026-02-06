@@ -36,7 +36,7 @@ pub fn save_todo_list(file_path: &PathBuf, todo_list: &TodoList) -> Result<()> {
 /// Expands a path string, replacing '~' with the user's home directory
 pub fn expand_path(path: &String) -> Result<PathBuf> {
     if path.starts_with('~') {
-        let home_dir = env::var("HOME").context("HOME environment variable not set")?;
+        let home_dir = env::var("HOME").context("HOME environment variable not set. Cannot expand '~' in path")?;
 
         if path == "~" {
             Ok(PathBuf::from(home_dir))
@@ -159,6 +159,6 @@ pub fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
     }
 
     Err(anyhow::anyhow!(
-        "Invalid deadline format. Use: YYYY-MM-DD HH:MM, YYYY-MM-DD, or relative time like 'tomorrow' or '+2days'"
+        "Invalid deadline format. Supported formats:\n  - Absolute: YYYY-MM-DD HH:MM or YYYY-MM-DD\n  - Relative: 'today', 'tomorrow', 'nextweek'\n  - Duration: '+2d', '+3h', '+30m'"
     ))
 }

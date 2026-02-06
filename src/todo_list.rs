@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, sync::atomic::Ordering};
+use std::{collections::HashSet, fmt, sync::atomic::Ordering};
 
 use crate::SHOW_COMPLETE;
 
@@ -55,7 +55,7 @@ impl IdPool {
     /// Releases an ID back to the pool for reuse
     fn release_id(&mut self, id: usize) -> Result<()> {
         if !self.used_ids.contains(&id) {
-            return Err(anyhow::anyhow!("ID {} is not in use", id));
+            return Err(anyhow::anyhow!("Cannot release ID {}: ID is not currently in use", id));
         }
 
         self.used_ids.remove(&id);
@@ -90,17 +90,18 @@ impl TodoList {
             .map_err(|_| anyhow::anyhow!("Invalid path format: {}", path))?;
 
         if indices.is_empty() {
-            return Err(anyhow::anyhow!("Not found path."));
+            return Err(anyhow::anyhow!("Invalid path: path cannot be empty"));
         }
 
         let mut current_list = self;
         for (depth, &index) in indices.iter().enumerate() {
             if index >= current_list.items.len() {
                 return Err(anyhow::anyhow!(
-                    "Index {} out of bounds at depth {} (path: {})",
+                    "Invalid path '{}': item {} does not exist at depth {} (available: 0-{})",
+                    path,
                     index,
                     depth,
-                    path
+                    current_list.items.len().saturating_sub(1)
                 ));
             }
 
@@ -112,7 +113,7 @@ impl TodoList {
             current_list = item
                 .sub_list
                 .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("No sublist at index {} (path: {})", index, path))?;
+                .ok_or_else(|| anyhow::anyhow!("Invalid path '{}': item {} at depth {} has no subitems", path, index, depth))?;
         }
 
         unreachable!()
@@ -149,7 +150,7 @@ impl TodoList {
         list.items.push(item);
         list.items
             .last()
-            .ok_or(anyhow::anyhow!("Cannot get todolist item"))
+            .ok_or(anyhow::anyhow!("Failed to add item to todo list"))
     }
 
     /// Edits an existing TodoItem at the specified path
@@ -214,7 +215,7 @@ impl TodoList {
             .items
             .iter()
             .position(|item| item.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Item with id {} not found", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Item with ID {} not found in path '{}'", id, path))?;
 
         parent.id_pool.release_id(id)?;
         Ok(parent.items.remove(index))
@@ -259,6 +260,25 @@ impl TodoItem {
                 item.display(depth + 1);
             }
         };
+    }
+}
+
+impl fmt::Display for TodoItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "#{}: {}{}{}",
+            self.id,
+            self.description,
+            match &self.sub_list {
+                Some(list) => format!(" ({})", list.todo_len()),
+                None => String::new(),
+            },
+            match &self.deadline {
+                Some(time) => format!(" | deadline: {}", time),
+                None => String::new(),
+            }
+        )
     }
 }
 
