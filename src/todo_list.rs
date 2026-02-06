@@ -16,29 +16,25 @@ pub struct TodoItem {
     pub sub_list: Option<TodoList>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct IdPool {
+    #[serde(default)]
     next_id: usize,
+    #[serde(default)]
     recycled_ids: Vec<usize>,
+    #[serde(default)]
     used_ids: HashSet<usize>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TodoList {
+    #[serde(default)]
     pub items: Vec<TodoItem>,
+    #[serde(default)]
     id_pool: IdPool,
 }
 
 impl IdPool {
-    /// Creates a new IdPool
-    fn new() -> Self {
-        Self {
-            next_id: 0,
-            recycled_ids: Vec::new(),
-            used_ids: HashSet::new(),
-        }
-    }
-
     /// Acquires a new ID, reusing recycled IDs when available
     fn acquire_id(&mut self) -> usize {
         if let Some(id) = self.recycled_ids.pop() {
@@ -64,19 +60,10 @@ impl IdPool {
     }
 }
 
-impl Default for TodoList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TodoList {
     /// Creates a new empty TodoList
     pub fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            id_pool: IdPool::new(),
-        }
+        Self::default()
     }
 
     /// Parses a path string to navigate to a specific TodoItem
@@ -233,40 +220,9 @@ impl TodoItem {
         self.completed = true;
     }
 
-    /// Displays the TodoItem with proper formatting and indentation
-    /// 
-    /// # Arguments
-    /// * `depth` - Indentation depth for nested items
-    pub fn display(&self, depth: usize) {
-        let status = if self.completed { " | ✓" } else { "" };
-        println!(
-            "{}#{}: {}{}{}{}",
-            "  ".repeat(depth),
-            self.id,
-            self.description,
-            match &self.sub_list {
-                Some(list) => format!("({})", list.todo_len()),
-                None => String::new(),
-            },
-            match &self.deadline {
-                Some(time) => format!(" | deadline: {}", time),
-                None => String::new(),
-            },
-            status,
-        );
-        if let Some(sub_list) = &self.sub_list {
-            let items = sub_list.list_items();
-            for item in items {
-                item.display(depth + 1);
-            }
-        };
-    }
-}
-
-impl fmt::Display for TodoItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
+    /// Formats the item's core information (ID, description, deadline, subitem count)
+    fn format_info(&self) -> String {
+        format!(
             "#{}: {}{}{}",
             self.id,
             self.description,
@@ -279,6 +235,32 @@ impl fmt::Display for TodoItem {
                 None => String::new(),
             }
         )
+    }
+
+    /// Displays the TodoItem with proper formatting and indentation
+    /// 
+    /// # Arguments
+    /// * `depth` - Indentation depth for nested items
+    pub fn display(&self, depth: usize) {
+        let status = if self.completed { " | ✓" } else { "" };
+        println!(
+            "{}{}{}",
+            "  ".repeat(depth),
+            self.format_info(),
+            status
+        );
+        if let Some(sub_list) = &self.sub_list {
+            let items = sub_list.list_items();
+            for item in items {
+                item.display(depth + 1);
+            }
+        };
+    }
+}
+
+impl fmt::Display for TodoItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.format_info())
     }
 }
 
