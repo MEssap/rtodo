@@ -36,7 +36,8 @@ pub fn save_todo_list(file_path: &PathBuf, todo_list: &TodoList) -> Result<()> {
 /// Expands a path string, replacing '~' with the user's home directory
 pub fn expand_path(path: &String) -> Result<PathBuf> {
     if path.starts_with('~') {
-        let home_dir = env::var("HOME").context("HOME environment variable not set. Cannot expand '~' in path")?;
+        let home_dir = env::var("HOME")
+            .context("HOME environment variable not set. Cannot expand '~' in path")?;
 
         if path == "~" {
             Ok(PathBuf::from(home_dir))

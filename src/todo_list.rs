@@ -51,7 +51,10 @@ impl IdPool {
     /// Releases an ID back to the pool for reuse
     fn release_id(&mut self, id: usize) -> Result<()> {
         if !self.used_ids.contains(&id) {
-            return Err(anyhow::anyhow!("Cannot release ID {}: ID is not currently in use", id));
+            return Err(anyhow::anyhow!(
+                "Cannot release ID {}: ID is not currently in use",
+                id
+            ));
         }
 
         self.used_ids.remove(&id);
@@ -67,7 +70,7 @@ impl TodoList {
     }
 
     /// Parses a path string to navigate to a specific TodoItem
-    /// 
+    ///
     /// Path format: "0" for top level item, "0:1:2" for nested items
     fn parse_path(&mut self, path: &String) -> Result<&mut TodoItem> {
         let indices: Vec<usize> = path
@@ -97,17 +100,21 @@ impl TodoList {
             }
 
             let item = &mut current_list.items[index];
-            current_list = item
-                .sub_list
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("Invalid path '{}': item {} at depth {} has no subitems", path, index, depth))?;
+            current_list = item.sub_list.as_mut().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid path '{}': item {} at depth {} has no subitems",
+                    path,
+                    index,
+                    depth
+                )
+            })?;
         }
 
         unreachable!()
     }
 
     /// Creates a new TodoItem and adds it to the list or a sublist
-    /// 
+    ///
     /// # Arguments
     /// * `description` - Description of the todo item
     /// * `deadline` - Optional deadline for the todo item
@@ -141,7 +148,7 @@ impl TodoList {
     }
 
     /// Edits an existing TodoItem at the specified path
-    /// 
+    ///
     /// # Arguments
     /// * `path` - Path to the item to edit
     /// * `description` - New description for the todo item
@@ -159,7 +166,7 @@ impl TodoList {
     }
 
     /// Returns a list of TodoItems based on SHOW_COMPLETE flag
-    /// 
+    ///
     /// If SHOW_COMPLETE is true, returns all items; otherwise returns only incomplete items
     pub fn list_items(&self) -> Vec<&TodoItem> {
         if SHOW_COMPLETE.load(Ordering::SeqCst) {
@@ -177,7 +184,7 @@ impl TodoList {
     }
 
     /// Removes a TodoItem at the specified path and returns it
-    /// 
+    ///
     /// Also releases the item's ID back to the ID pool for reuse
     pub fn remove_item(&mut self, path: &str) -> Result<TodoItem> {
         /// Splits parent and child path from a colon-separated string
@@ -238,17 +245,12 @@ impl TodoItem {
     }
 
     /// Displays the TodoItem with proper formatting and indentation
-    /// 
+    ///
     /// # Arguments
     /// * `depth` - Indentation depth for nested items
     pub fn display(&self, depth: usize) {
         let status = if self.completed { " | ✓" } else { "" };
-        println!(
-            "{}{}{}",
-            "  ".repeat(depth),
-            self.format_info(),
-            status
-        );
+        println!("{}{}{}", "  ".repeat(depth), self.format_info(), status);
         if let Some(sub_list) = &self.sub_list {
             let items = sub_list.list_items();
             for item in items {

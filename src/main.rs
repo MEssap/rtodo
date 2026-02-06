@@ -4,9 +4,9 @@ mod utils;
 use crate::utils::{expand_path, load_todo_list, parse_deadline, save_todo_list};
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::Shell;
 use clap_complete::aot::{Bash, Elvish, Fish, PowerShell, Zsh};
-use clap_complete::{Generator, generate};
+use clap_complete::Shell;
+use clap_complete::{generate, Generator};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 
