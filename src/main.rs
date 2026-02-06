@@ -2,7 +2,7 @@ mod todo_list;
 mod utils;
 
 use crate::utils::{expand_path, load_todo_list, parse_deadline, save_todo_list};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use clap_complete::aot::{Bash, Elvish, Fish, PowerShell, Zsh};

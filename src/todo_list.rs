@@ -30,6 +30,7 @@ pub struct TodoList {
 }
 
 impl IdPool {
+    /// Creates a new IdPool
     fn new() -> Self {
         Self {
             next_id: 0,
@@ -38,7 +39,7 @@ impl IdPool {
         }
     }
 
-    /// 获取ID
+    /// Acquires a new ID, reusing recycled IDs when available
     fn acquire_id(&mut self) -> usize {
         if let Some(id) = self.recycled_ids.pop() {
             self.used_ids.insert(id);
@@ -51,7 +52,7 @@ impl IdPool {
         }
     }
 
-    /// 释放ID
+    /// Releases an ID back to the pool for reuse
     fn release_id(&mut self, id: usize) -> Result<()> {
         if !self.used_ids.contains(&id) {
             return Err(anyhow::anyhow!("ID {} is not in use", id));
@@ -63,7 +64,14 @@ impl IdPool {
     }
 }
 
+impl Default for TodoList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TodoList {
+    /// Creates a new empty TodoList
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
@@ -71,6 +79,9 @@ impl TodoList {
         }
     }
 
+    /// Parses a path string to navigate to a specific TodoItem
+    /// 
+    /// Path format: "0" for top level item, "0:1:2" for nested items
     fn parse_path(&mut self, path: &String) -> Result<&mut TodoItem> {
         let indices: Vec<usize> = path
             .split(':')
@@ -107,7 +118,12 @@ impl TodoList {
         unreachable!()
     }
 
-    /// create new TodoItem and push it in list
+    /// Creates a new TodoItem and adds it to the list or a sublist
+    /// 
+    /// # Arguments
+    /// * `description` - Description of the todo item
+    /// * `deadline` - Optional deadline for the todo item
+    /// * `parent_path` - Optional path to parent item for creating subtasks
     pub fn add_item(
         &mut self,
         description: String,
@@ -136,18 +152,27 @@ impl TodoList {
             .ok_or(anyhow::anyhow!("Cannot get todolist item"))
     }
 
+    /// Edits an existing TodoItem at the specified path
+    /// 
+    /// # Arguments
+    /// * `path` - Path to the item to edit
+    /// * `description` - New description for the todo item
+    /// * `deadline` - Optional new deadline for the todo item
     pub fn edit_item(
         &mut self,
         path: &String,
-        descreption: String,
+        description: String,
         deadline: Option<DateTime<Local>>,
     ) -> Result<&TodoItem> {
         let item = self.parse_path(path)?;
-        item.description = descreption;
+        item.description = description;
         item.deadline = deadline.map(|deadline| deadline.to_string());
         Ok(item)
     }
 
+    /// Returns a list of TodoItems based on SHOW_COMPLETE flag
+    /// 
+    /// If SHOW_COMPLETE is true, returns all items; otherwise returns only incomplete items
     pub fn list_items(&self) -> Vec<&TodoItem> {
         if SHOW_COMPLETE.load(Ordering::SeqCst) {
             self.items.iter().collect()
@@ -156,18 +181,27 @@ impl TodoList {
         }
     }
 
+    /// Marks a TodoItem as completed at the specified path
     pub fn complete_item(&mut self, path: &String) -> Result<&TodoItem> {
         let item = self.parse_path(path)?;
         item.complete();
         Ok(item)
     }
 
+    /// Removes a TodoItem at the specified path and returns it
+    /// 
+    /// Also releases the item's ID back to the ID pool for reuse
     pub fn remove_item(&mut self, path: &str) -> Result<TodoItem> {
-        /// split parent and child path
+        /// Splits parent and child path from a colon-separated string
         fn split_path(path: &str) -> Result<(Option<String>, usize)> {
-            let (parent_str, child_str) = path.rsplit_once(":").context("Invalid path format")?;
-            let child = child_str.parse::<usize>().context("Invalid parse format")?;
-            Ok((Some(parent_str.into()), child))
+            if let Some((parent_str, child_str)) = path.rsplit_once(":") {
+                let child = child_str.parse::<usize>().context("Invalid parse format")?;
+                Ok((Some(parent_str.into()), child))
+            } else {
+                // If no colon, treat the entire path as the child ID at root level
+                let child = path.parse::<usize>().context("Invalid parse format")?;
+                Ok((None, child))
+            }
         }
 
         let (parent_path, id) = split_path(path)?;
@@ -186,21 +220,27 @@ impl TodoList {
         Ok(parent.items.remove(index))
     }
 
+    /// Returns the count of incomplete todo items
     pub fn todo_len(&self) -> usize {
         self.items.iter().filter(|item| !item.completed).count()
     }
 }
 
 impl TodoItem {
+    /// Marks this TodoItem as completed
     pub fn complete(&mut self) {
         self.completed = true;
     }
-    // TODO: 实现Display与Format
-    pub fn display(&self, deep: usize) {
+
+    /// Displays the TodoItem with proper formatting and indentation
+    /// 
+    /// # Arguments
+    /// * `depth` - Indentation depth for nested items
+    pub fn display(&self, depth: usize) {
         let status = if self.completed { " | ✓" } else { "" };
         println!(
             "{}#{}: {}{}{}{}",
-            "  ".repeat(deep),
+            "  ".repeat(depth),
             self.id,
             self.description,
             match &self.sub_list {
@@ -216,7 +256,7 @@ impl TodoItem {
         if let Some(sub_list) = &self.sub_list {
             let items = sub_list.list_items();
             for item in items {
-                item.display(deep + 1);
+                item.display(depth + 1);
             }
         };
     }
