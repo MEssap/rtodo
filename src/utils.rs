@@ -8,6 +8,7 @@ use std::{
     path::PathBuf,
 };
 
+/// Loads a TodoList from a JSON file, or creates a new one if the file doesn't exist
 pub fn load_todo_list(file_path: &PathBuf) -> Result<TodoList> {
     if file_path.exists() {
         let file = File::open(file_path)?;
@@ -19,6 +20,7 @@ pub fn load_todo_list(file_path: &PathBuf) -> Result<TodoList> {
     }
 }
 
+/// Saves a TodoList to a JSON file with pretty formatting
 pub fn save_todo_list(file_path: &PathBuf, todo_list: &TodoList) -> Result<()> {
     let file = OpenOptions::new()
         .write(true)
@@ -31,9 +33,11 @@ pub fn save_todo_list(file_path: &PathBuf, todo_list: &TodoList) -> Result<()> {
     Ok(())
 }
 
+/// Expands a path string, replacing '~' with the user's home directory
 pub fn expand_path(path: &String) -> Result<PathBuf> {
     if path.starts_with('~') {
-        let home_dir = env::var("HOME").context("HOME environment variable not set")?;
+        let home_dir = env::var("HOME")
+            .context("HOME environment variable not set. Cannot expand '~' in path")?;
 
         if path == "~" {
             Ok(PathBuf::from(home_dir))
@@ -46,6 +50,7 @@ pub fn expand_path(path: &String) -> Result<PathBuf> {
     }
 }
 
+/// Parses relative time expressions like "today", "tomorrow", "nextweek", or "+2days"
 fn parse_relative_time(time_str: &str) -> Option<DateTime<Local>> {
     let now = Local::now();
 
@@ -80,6 +85,7 @@ fn parse_relative_time(time_str: &str) -> Option<DateTime<Local>> {
     }
 }
 
+/// Parses duration offset strings like "2d", "3h", "30m" and adds them to a base time
 fn parse_duration_offset(
     duration_str: &str,
     base_time: DateTime<Local>,
@@ -95,7 +101,6 @@ fn parse_duration_offset(
                 .trim_end_matches("days")
                 .parse()
                 .ok()?;
-            println!("run here {}", days);
             duration += chrono::Duration::days(days);
         } else if part.ends_with("h") || part.ends_with("hours") {
             let hours = part
@@ -120,6 +125,11 @@ fn parse_duration_offset(
     Some(base_time + duration)
 }
 
+/// Parses deadline strings in various formats:
+/// - "YYYY-MM-DD HH:MM" - Absolute date and time
+/// - "YYYY-MM-DD" - Absolute date (defaults to 23:59:59)
+/// - "today", "tomorrow", "nextweek" - Relative dates
+/// - "+2d", "+3h", "+30m" - Relative durations
 pub fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
     if let Some(deadline_str) = deadline {
         // 尝试解析完整日期时间格式: YYYY-MM-DD HH:MM
@@ -150,6 +160,6 @@ pub fn parse_deadline(deadline: Option<String>) -> Result<DateTime<Local>> {
     }
 
     Err(anyhow::anyhow!(
-        "Invalid deadline format. Use: YYYY-MM-DD HH:MM, YYYY-MM-DD, or relative time like 'tomorrow' or '+2days'"
+        "Invalid deadline format. Supported formats:\n  - Absolute: YYYY-MM-DD HH:MM or YYYY-MM-DD\n  - Relative: 'today', 'tomorrow', 'nextweek'\n  - Duration: '+2d', '+3h', '+30m'"
     ))
 }
